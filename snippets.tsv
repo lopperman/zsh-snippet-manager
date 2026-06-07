@@ -1,0 +1,10 @@
+# category	context	name	command
+git	basics	git status	git status
+git	basics	git last commit	git show --stat HEAD
+git	branches	new branch	git switch -c my-branch
+docker	basics	list containers	docker ps -a
+docker	basics	prune system	docker system prune -f
+brew	general	brew list	brew list
+brew	general	brew update + upgrade	brew update && brew upgrade
+node	dev	start dev server	npm run dev
+example	multiline	multi-step project setup	cd ~/projects/app\nnvm use 22\nnpm install\nnpm run dev

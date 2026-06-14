@@ -102,13 +102,13 @@ _snip_generate
 _snip_usage() {
   cat <<'EOF'
 snip — CLI snippet manager
-  snip               pick from all snippets
-  snip -l cat        pick a category, then a snippet
-  snip -l context    pick a context, then a snippet
-  snip -f <expr>     pick from snippets matching <expr> (name/category/context/command)
-  snip -f <expr> --show   as above, but show each command under its name (lines prefixed " > ")
+  snip                      pick from all snippets
+  snip -l cat [--show]      pick a category, then a snippet
+  snip -l context [--show]  pick a context, then a snippet
+  snip -f <expr> [--show]   pick from snippets matching <expr> (name/category/context/command)
   snip -a <category> <context> <name> <command>   add a new snippet
-  snip -h            this help
+  snip -h                   this help
+--show renders each command's lines under its name (prefixed " > "); needs fzf >= 0.50.
 Selecting a snippet loads it onto your next prompt to edit, then press Enter.
 
 Add examples:
@@ -264,12 +264,21 @@ snip() {
         [[ -z $expr ]] && { _snip_usage; return 1; }
         _snip_filter "$expr" | _snip_pick_rows $show ;;
     -l)
+      shift
+      local show=0 sub=
+      while (( $# )); do
+        case $1 in
+          --show) show=1 ;;
+          *) sub=$1 ;;
+        esac
+        shift
+      done
       local pick
-      case $2 in
+      case $sub in
         cat|category) pick=$(_snip_categories | _snip_pick_value) || return 1
-                      _snip_filter "$pick" | awk -F'\t' -v c="$pick" '$1==c' | _snip_pick_rows ;;
+                      _snip_filter "$pick" | awk -F'\t' -v c="$pick" '$1==c' | _snip_pick_rows $show ;;
         context|ctx)  pick=$(_snip_contexts | _snip_pick_value) || return 1
-                      _snip_filter "$pick" | awk -F'\t' -v c="$pick" '$2==c' | _snip_pick_rows ;;
+                      _snip_filter "$pick" | awk -F'\t' -v c="$pick" '$2==c' | _snip_pick_rows $show ;;
         *) _snip_usage; return 1 ;;
       esac ;;
     "") _snip_rows | _snip_pick_rows ;;

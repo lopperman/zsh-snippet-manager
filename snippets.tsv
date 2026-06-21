@@ -1,4 +1,4 @@
-# category	context	name	command
+# category	context	name	command	autorun
 git	basics	git status	git status
 git	basics	git last commit	git show --stat HEAD
 git	branches	new branch	git switch -c my-branch
@@ -8,3 +8,5 @@ brew	general	brew list	brew list
 brew	general	brew update + upgrade	brew update && brew upgrade
 node	dev	start dev server	npm run dev
 example	multiline	multi-step project setup	cd ~/projects/app\nnvm use 22\nnpm install\nnpm run dev
+system	info	today	date	1
+system	info	shell info	echo "shell: $SHELL"\necho "dir: $PWD"\nuname -sm	1

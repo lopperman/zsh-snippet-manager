@@ -49,16 +49,13 @@ _snip_escape() {
   print -r -- "$s"
 }
 
-# Print the unescaped command for the snippet whose name slugifies to $1.
-_snip_resolve_by_slug() {
+# Print the raw TSV row whose name slugifies to $1 (caller splits the fields).
+_snip_row_by_slug() {
   local want=$1 line; local -a reply
   local -a rows=("${(@f)$(_snip_rows)}")
   for line in $rows; do
     _snip_fields "$line"
-    if [[ "$(_snip_slugify "$reply[3]")" == "$want" ]]; then
-      _snip_unescape "$reply[4]"
-      return 0
-    fi
+    [[ "$(_snip_slugify "$reply[3]")" == "$want" ]] && { print -r -- "$line"; return 0; }
   done
   return 1
 }
@@ -76,12 +73,27 @@ _snip_insert() {
   print -z -- "$s"
 }
 
+# Deliver a snippet: run it immediately when its autorun flag ($2) is set,
+# otherwise load it onto the next prompt to edit. autorun trusts the command —
+# it comes from the user's own data file.
+_snip_deliver() {
+  local cmd=$1 autorun=$2
+  if [[ -n $autorun && $autorun != 0 ]]; then
+    eval "$cmd"
+  else
+    _snip_insert "$cmd"
+  fi
+}
+
 # Define the snip-<slug> function for $1 (resolves its command from the file).
 # Slug chars are [a-z0-9-], so they are safe inside the eval'd name/lookup key.
 _snip_define() {
   local slug=$1
   eval "snip-${slug}() {
-    _snip_insert \"\$(_snip_resolve_by_slug '${slug}')\"
+    local line; local -a reply
+    line=\$(_snip_row_by_slug '${slug}') || return 1
+    _snip_fields \"\$line\"
+    _snip_deliver \"\$(_snip_unescape \"\$reply[4]\")\" \"\$reply[5]\"
   }"
 }
 
@@ -106,14 +118,18 @@ snip — CLI snippet manager
   snip -l cat [--show]      pick a category, then a snippet
   snip -l context [--show]  pick a context, then a snippet
   snip -f <expr> [--show]   pick from snippets matching <expr> (name/category/context/command)
-  snip -a <category> <context> <name> <command>   add a new snippet
+  snip -a [--autorun] <category> <context> <name> <command>   add a new snippet
   snip -h                   this help
 --show renders each command's lines under its name (prefixed " > "); needs fzf >= 0.50.
 Selecting a snippet loads it onto your next prompt to edit, then press Enter.
+With --autorun, the snippet runs immediately on selection instead.
 
 Add examples:
   # simple command — run `brew list`
   snip -a brew general 'brew list' 'brew list'
+
+  # autorun — execute immediately on selection
+  snip -a --autorun git basics 'git status' 'git status'
 
   # multi-line command — put \n between lines
   snip -a wire runlocal 'start wire backend' 'cd ~/projects/the-wire\nnvm use 22\nnpm run dev'
@@ -131,12 +147,13 @@ _snip_fzf_multiline() {
   (( ${p[1]:-0} > 0 || ${p[2]:-0} >= 50 ))
 }
 
-# stdin: TSV rows. Let the user pick one; insert its command. fzf if present,
-# else a numbered `select` menu on snippet names.
-# $1: show flag (1 = render each command's lines under its name, " > "-prefixed).
+# Let the user pick one of the TSV rows in $1; deliver its command. fzf if
+# present, else a numbered `select` menu on snippet names. Rows come in as an
+# argument (not a pipe) so delivery runs in the caller's shell — an autorun
+# `cd`/`export` then persists, and the `select` fallback can read the terminal.
+# $2: show flag (1 = render each command's lines under its name, " > "-prefixed).
 _snip_pick_rows() {
-  local show=${1:-0}
-  local rows; rows=$(cat)
+  local rows=$1 show=${2:-0}
   [[ -z $rows ]] && { print -r -- "no snippets" >&2; return 1; }
   local choice line cl; local -a reply lines=("${(@f)rows}")
 
@@ -179,7 +196,7 @@ _snip_pick_rows() {
   fi
   [[ -z $choice ]] && return 1
   _snip_fields "$choice"
-  _snip_insert "$(_snip_unescape "$reply[4]")"
+  _snip_deliver "$(_snip_unescape "$reply[4]")" "$reply[5]"
 }
 
 # stdin: candidate values (categories or contexts). Echo the chosen value.
@@ -216,9 +233,12 @@ _snip_replace_row() {
   mv $tmp $SNIP_TSV
 }
 
-# Add a snippet. Args: category context name command...
+# Add a snippet. Args: [--autorun] category context name command...
 # Everything after the third arg is joined with spaces to form the command.
+# --autorun (optional, default off) marks the snippet to run on selection.
 _snip_add() {
+  local autorun=
+  while [[ $1 == --autorun ]]; do autorun=1; shift; done
   local cat=$1 ctx=$2 name=$3
   (( $# >= 3 )) && shift 3 || shift $#
   local cmd="$*"
@@ -231,6 +251,7 @@ _snip_add() {
   [[ -z $slug ]] && { print -r -- "snip -a: name '$name' produces an empty slug" >&2; return 1; }
 
   local row="$(_snip_escape "$cat")"$'\t'"$(_snip_escape "$ctx")"$'\t'"$(_snip_escape "$name")"$'\t'"$(_snip_escape "$cmd")"
+  [[ -n $autorun ]] && row+=$'\t'1
 
   if (( ${+functions[snip-${slug}]} )); then
     print -rn -- "snip: 'snip-${slug}' already exists. Overwrite? [y/N] " >&2
@@ -262,7 +283,7 @@ snip() {
           shift
         done
         [[ -z $expr ]] && { _snip_usage; return 1; }
-        _snip_filter "$expr" | _snip_pick_rows $show ;;
+        _snip_pick_rows "$(_snip_filter "$expr")" $show ;;
     -l)
       shift
       local show=0 sub=
@@ -276,12 +297,12 @@ snip() {
       local pick
       case $sub in
         cat|category) pick=$(_snip_categories | _snip_pick_value) || return 1
-                      _snip_filter "$pick" | awk -F'\t' -v c="$pick" '$1==c' | _snip_pick_rows $show ;;
+                      _snip_pick_rows "$(_snip_filter "$pick" | awk -F'\t' -v c="$pick" '$1==c')" $show ;;
         context|ctx)  pick=$(_snip_contexts | _snip_pick_value) || return 1
-                      _snip_filter "$pick" | awk -F'\t' -v c="$pick" '$2==c' | _snip_pick_rows $show ;;
+                      _snip_pick_rows "$(_snip_filter "$pick" | awk -F'\t' -v c="$pick" '$2==c')" $show ;;
         *) _snip_usage; return 1 ;;
       esac ;;
-    "") _snip_rows | _snip_pick_rows ;;
+    "") _snip_pick_rows "$(_snip_rows)" ;;
     *) _snip_usage; return 1 ;;
   esac
 }

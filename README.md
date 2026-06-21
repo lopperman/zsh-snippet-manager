@@ -4,9 +4,10 @@
 fuzzy-pick one straight onto your command line, ready to edit and run. It also
 generates a `snip-<name>` shortcut function for every snippet.
 
-Selecting a snippet **loads it onto your next prompt** (via `print -z`) — it
-never auto-runs, so you always get a chance to review/edit before pressing
-Enter.
+Selecting a snippet **loads it onto your next prompt** (via `print -z`) — by
+default it never auto-runs, so you always get a chance to review/edit before
+pressing Enter. Snippets added with `--autorun` are the exception: they
+**execute immediately** on selection (see [Autorun](#autorun)).
 
 ## Requirements
 
@@ -24,22 +25,39 @@ Enter.
 git clone git@github.com:lopperman/zsh-snippets.git ~/.zsh-snippets
 ```
 
-Add to your `~/.zshrc`:
+### Quick install (recommended)
+
+Run the installer once. It adds a small block to your `~/.zshrc` so `snip`
+loads in every new shell:
 
 ```zsh
+~/.zsh-snippets/install.zsh
+```
+
+By default your snippets live in `~/zsh-snippets/snippets.tsv` (seeded from the
+bundled sample on first run). To keep them elsewhere, pass a path:
+
+```zsh
+~/.zsh-snippets/install.zsh ~/dotfiles/snippets.tsv
+```
+
+Then `source ~/.zshrc` (or open a new shell). Re-running the installer is safe —
+it updates its own block instead of adding a duplicate. To uninstall, delete the
+`# >>> zsh-snippet-manager >>>` … `# <<< zsh-snippet-manager <<<` block from
+`~/.zshrc`.
+
+### Manual install
+
+If you'd rather wire it up yourself, add to your `~/.zshrc`:
+
+```zsh
+export SNIP_TSV=~/zsh-snippets/snippets.tsv   # optional; see below
 source ~/.zsh-snippets/snippets.zsh
 ```
 
-Open a new shell (or `source ~/.zsh-snippets/snippets.zsh`). That's it.
-
-By default the data file is `snippets.tsv` **next to the script**, so the
-bundled sample works immediately. To keep your snippets elsewhere, set
-`SNIP_TSV` before sourcing:
-
-```zsh
-export SNIP_TSV=~/dotfiles/snippets.tsv
-source ~/.zsh-snippets/snippets.zsh
-```
+If you skip `SNIP_TSV`, the data file defaults to `snippets.tsv` **next to the
+script**, so the bundled sample works immediately. Open a new shell (or
+re-`source`) and you're set.
 
 ## Usage
 
@@ -51,7 +69,7 @@ snip -f <expr>            pick from snippets matching <expr>
                           (matches name / category / context / command)
 snip -f <expr> --show     as above, but show each command under its name
                           (lines prefixed with " > ")  [needs fzf >= 0.50]
-snip -a <category> <context> <name> <command>   add a new snippet
+snip -a [--autorun] <category> <context> <name> <command>   add a new snippet
 snip -h                   help
 ```
 
@@ -72,18 +90,41 @@ snip -a node dev 'project setup' 'cd ~/projects/app\nnvm use 22\nnpm install\nnp
 If a `snip-<name>` function already exists you'll be asked to confirm before
 overwriting it.
 
+### Autorun
+
+Pass `--autorun` (as the **first** argument, before the positional args) to
+mark a snippet to **run immediately** when selected, instead of loading onto
+the prompt:
+
+```zsh
+snip -a --autorun system info today 'date'
+```
+
+Notes:
+
+- `--autorun` must come before `<category>` — a trailing `--autorun` is treated
+  as part of the command.
+- Multi-line autorun snippets run each line in order.
+- State changes (`cd`, `export`, `nvm use`) persist in your current shell, so a
+  `cd` snippet actually moves your shell.
+- Autorun runs the stored command with `eval` — only mark snippets you trust
+  (it's your own data file).
+
 ## Data format
 
-`snippets.tsv` is tab-separated with four columns:
+`snippets.tsv` is tab-separated with four columns, plus an optional fifth:
 
 ```
-category <TAB> context <TAB> name <TAB> command
+category <TAB> context <TAB> name <TAB> command [<TAB> autorun]
 ```
 
 - Lines beginning with `#` and blank lines are ignored.
 - In the **command** column, use the literal escapes `\n` and `\t` for
   newlines and tabs so each snippet stays on a single line. `snip -a` writes
   these escapes for you automatically.
+- The optional **autorun** column is `1` to run the snippet on selection;
+  absent (or empty) means load-to-prompt as usual. Existing four-column rows
+  keep working unchanged.
 
 You can edit `snippets.tsv` by hand or use `snip -a`. Changes take effect the
 next time the script is sourced (open a new shell or re-`source` it).
